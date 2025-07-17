@@ -36,6 +36,9 @@ class PreloadScene extends Phaser.Scene {
             this.scene.start('GameScene');
         });
 
+        // Load the map image
+        this.load.image('cityMap', 'assets/map.webp');
+
         this.createPlaceholderAssets();
     }
 

@@ -18,6 +18,13 @@ class PoliceVehicle extends Vehicle {
         this.isChasing = true;
         this.sirenActive = true;
         console.log('Police: Starting pursuit!');
+        
+        // Start siren loop
+        this.sirenInterval = setInterval(() => {
+            if (this.sirenActive && this.scene.soundManager) {
+                this.scene.soundManager.playSiren();
+            }
+        }, 800);
     }
     
     stopPursuit() {
@@ -26,6 +33,13 @@ class PoliceVehicle extends Vehicle {
         this.sirenActive = false;
         this.pursuitSpeed = 0;
         this.setVelocity(0, 0);
+        
+        // Stop siren
+        if (this.sirenInterval) {
+            clearInterval(this.sirenInterval);
+            this.sirenInterval = null;
+        }
+        
         console.log('Police: Pursuit ended');
     }
     

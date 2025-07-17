@@ -11,7 +11,9 @@ class ControlsUI {
             'WASD/Arrows - Move',
             'E - Enter/Exit Vehicle',
             'Space - Handbrake',
-            'H - Horn'
+            'H - Horn',
+            'B - Collision Editor',
+            'T - Test Wanted Level'
         ];
 
         this.controlsText = this.scene.add.text(10, 10, controls, {

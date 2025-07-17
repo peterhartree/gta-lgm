@@ -5,19 +5,25 @@ class GameScene extends Phaser.Scene {
 
     create() {
         console.log('GameScene created!');
-        this.cameras.main.setBackgroundColor('#3a3a3a');
         
         this.wantedLevel = 0;
         this.wantedDecayTimer = 0;
         this.policeSpawnTimer = 0;
         
+        // Collision editor mode
+        this.editMode = false;
+        this.collisionPoints = [];
+        this.currentPolygon = [];
+        
+        this.createMapBackground();
         this.createCollisionGroups();
-        this.createCity();
+        this.loadPredefinedCollisions();
         this.createPlayer();
         this.createVehicles();
         this.createPedestrians();
         this.createControls();
         this.setupCollisions();
+        this.setupCollisionEditor();
         
         this.controlsUI = new ControlsUI(this);
         this.wantedLevelUI = new WantedLevelUI(this);
@@ -27,7 +33,7 @@ class GameScene extends Phaser.Scene {
         this.wantedLevelUI.updateWantedLevel(0);
         
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-        this.cameras.main.setZoom(2);
+        this.cameras.main.setZoom(1);
     }
 
     createCollisionGroups() {
@@ -41,58 +47,196 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    createCity() {
-        const graphics = this.add.graphics();
+    createMapBackground() {
+        // Add the map image as background
+        const map = this.add.image(0, 0, 'cityMap');
+        map.setOrigin(0, 0);
         
-        graphics.lineStyle(4, 0x555555);
-        for (let x = 0; x < 2000; x += 200) {
-            graphics.moveTo(x, 0);
-            graphics.lineTo(x, 2000);
-        }
-        for (let y = 0; y < 2000; y += 200) {
-            graphics.moveTo(0, y);
-            graphics.lineTo(2000, y);
-        }
-        graphics.strokePath();
+        // Scale map to fit game world (adjust these values based on your map)
+        const mapScale = 0.5; // Reduced to half size
+        map.setScale(mapScale);
         
-        const buildingPositions = [
-            { x: 50, y: 50, w: 100, h: 100 },
-            { x: 250, y: 50, w: 100, h: 100 },
-            { x: 450, y: 50, w: 100, h: 100 },
-            { x: 50, y: 250, w: 100, h: 100 },
-            { x: 450, y: 250, w: 100, h: 100 },
-            { x: 50, y: 450, w: 100, h: 100 },
-            { x: 250, y: 450, w: 100, h: 100 },
-            { x: 450, y: 450, w: 100, h: 100 },
-            { x: 650, y: 50, w: 100, h: 100 },
-            { x: 850, y: 50, w: 100, h: 100 },
-            { x: 650, y: 250, w: 100, h: 100 },
-            { x: 850, y: 250, w: 100, h: 100 },
-            { x: 650, y: 450, w: 100, h: 100 },
-            { x: 850, y: 450, w: 100, h: 100 },
-            { x: 50, y: 650, w: 100, h: 100 },
-            { x: 250, y: 650, w: 100, h: 100 },
-            { x: 450, y: 650, w: 100, h: 100 },
-            { x: 650, y: 650, w: 100, h: 100 },
-            { x: 850, y: 650, w: 100, h: 100 }
+        // Set world bounds to match map size
+        const worldWidth = map.width * mapScale;
+        const worldHeight = map.height * mapScale;
+        this.physics.world.setBounds(0, 0, worldWidth, worldHeight);
+        
+        // Store map dimensions for reference
+        this.mapWidth = worldWidth;
+        this.mapHeight = worldHeight;
+        
+        console.log('Map loaded. World size:', worldWidth, 'x', worldHeight);
+    }
+    
+    loadPredefinedCollisions() {
+        // Predefined collision boundaries from map tracing
+        const savedCollisions = [
+            // Empty - no predefined collisions
         ];
         
-        buildingPositions.forEach(building => {
-            const rect = this.add.rectangle(
-                building.x + building.w/2, 
-                building.y + building.h/2, 
-                building.w, 
-                building.h, 
-                0x666666
-            );
-            this.buildings.add(rect);
+        // Load each saved collision polygon
+        savedCollisions.forEach(polygon => {
+            this.createBuildingFromPolygon(polygon);
         });
+        
+        console.log(`Loaded ${savedCollisions.length} predefined collision boundaries`);
+    }
+    
+    setupCollisionEditor() {
+        // Graphics for drawing collision boundaries
+        this.collisionGraphics = this.add.graphics();
+        this.collisionGraphics.setDepth(100);
+        
+        // Text for editor instructions
+        this.editorText = this.add.text(10, 150, '', {
+            fontSize: '16px',
+            backgroundColor: '#000000',
+            padding: { x: 10, y: 5 }
+        });
+        this.editorText.setScrollFactor(0);
+        this.editorText.setDepth(1002);
+        
+        // Toggle edit mode with 'B' key
+        this.input.keyboard.on('keydown-B', () => {
+            this.editMode = !this.editMode;
+            this.updateEditorDisplay();
+            
+            if (!this.editMode && this.currentPolygon.length > 2) {
+                // Save current polygon when exiting edit mode
+                this.createBuildingFromPolygon(this.currentPolygon);
+                this.currentPolygon = [];
+            }
+        });
+        
+        // Mouse click handler for adding collision points
+        this.input.on('pointerdown', (pointer) => {
+            if (!this.editMode) return;
+            
+            // Convert screen coordinates to world coordinates
+            const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+            
+            if (pointer.rightButtonDown()) {
+                // Right click - finish current polygon
+                if (this.currentPolygon.length > 2) {
+                    this.createBuildingFromPolygon(this.currentPolygon);
+                    this.currentPolygon = [];
+                }
+            } else {
+                // Left click - add point
+                this.currentPolygon.push({ x: worldPoint.x, y: worldPoint.y });
+            }
+            
+            this.drawCollisionBoundaries();
+        });
+        
+        // Export collision data with 'X' key
+        this.input.keyboard.on('keydown-X', () => {
+            if (this.editMode) {
+                console.log('Collision boundaries:', JSON.stringify(this.collisionPoints));
+                console.log('Copy this data to save your collision boundaries!');
+            }
+        });
+        
+        // Toggle collision visibility with 'V' key
+        this.input.keyboard.on('keydown-V', () => {
+            this.showCollisions = !this.showCollisions;
+            if (this.showCollisions && !this.editMode) {
+                this.drawCollisionBoundaries();
+            } else if (!this.editMode) {
+                this.collisionGraphics.clear();
+            }
+        });
+    }
+    
+    createBuildingFromPolygon(points) {
+        if (points.length < 3) return;
+        
+        // Calculate center and bounds
+        let minX = points[0].x, maxX = points[0].x;
+        let minY = points[0].y, maxY = points[0].y;
+        
+        points.forEach(p => {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+        });
+        
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        const width = maxX - minX;
+        const height = maxY - minY;
+        
+        // Create invisible rectangle for collision
+        const building = this.add.rectangle(centerX, centerY, width, height);
+        building.setVisible(false);
+        this.buildings.add(building);
+        
+        // Store the polygon data
+        this.collisionPoints.push([...points]);
+    }
+    
+    drawCollisionBoundaries() {
+        this.collisionGraphics.clear();
+        
+        if (!this.editMode && !this.showCollisions) return;
+        
+        // Draw saved polygons
+        const color = this.editMode ? 0x00ff00 : 0xff0000;
+        const alpha = this.editMode ? 0.8 : 0.5;
+        this.collisionGraphics.lineStyle(3, color, alpha);
+        
+        this.collisionPoints.forEach(polygon => {
+            this.collisionGraphics.beginPath();
+            polygon.forEach((point, i) => {
+                if (i === 0) {
+                    this.collisionGraphics.moveTo(point.x, point.y);
+                } else {
+                    this.collisionGraphics.lineTo(point.x, point.y);
+                }
+            });
+            this.collisionGraphics.closePath();
+            this.collisionGraphics.strokePath();
+        });
+        
+        // Draw current polygon being edited (only in edit mode)
+        if (this.editMode && this.currentPolygon.length > 0) {
+            this.collisionGraphics.lineStyle(3, 0xffff00, 1);
+            this.collisionGraphics.beginPath();
+            this.currentPolygon.forEach((point, i) => {
+                if (i === 0) {
+                    this.collisionGraphics.moveTo(point.x, point.y);
+                } else {
+                    this.collisionGraphics.lineTo(point.x, point.y);
+                }
+                // Draw point
+                this.collisionGraphics.fillStyle(0xffff00);
+                this.collisionGraphics.fillCircle(point.x, point.y, 5);
+            });
+            this.collisionGraphics.strokePath();
+        }
+    }
+    
+    updateEditorDisplay() {
+        if (this.editMode) {
+            this.editorText.setText([
+                'COLLISION EDITOR MODE',
+                'Left Click: Add point',
+                'Right Click: Finish polygon',
+                'B: Toggle editor',
+                'X: Export collision data',
+                `Points: ${this.currentPolygon.length}`
+            ]);
+            this.drawCollisionBoundaries();
+        } else {
+            this.editorText.setText('');
+            this.collisionGraphics.clear();
+        }
     }
 
     createPlayer() {
         this.player = this.physics.add.sprite(400, 300, 'player');
         this.player.setCollideWorldBounds(true);
-        this.physics.world.setBounds(0, 0, 2000, 2000);
         
         this.player.speed = 200;
         this.player.isInVehicle = false;
