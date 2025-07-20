@@ -12,7 +12,7 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
         this.setCollideWorldBounds(true);
         this.setBounce(0.1);
         this.setDrag(300);
-        this.setScale(0.15); // Scale down the pedestrian images to match car size
+        this.setScale(0.105); // Scale down the pedestrian images to 70% of previous size
         
         this.walkSpeed = 60;
         this.runSpeed = 150;

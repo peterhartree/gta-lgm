@@ -11,7 +11,7 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         this.setAngularDrag(100);
         this.setMaxVelocity(500);
         this.setMass(1000);
-        this.setScale(0.5); // Scale down the car sprites
+        this.setScale(0.35); // Scale down the car sprites to 70% of previous size
         this.setImmovable(true); // Start as immovable when unoccupied
         
         this.maxSpeed = 400;
@@ -23,6 +23,11 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         this.currentSpeed = 0;
         this.isOccupied = false;
         this.driver = null;
+        
+        // Health and destruction properties
+        this.health = 2; // Takes 2 shots to destroy
+        this.maxHealth = 2;
+        this.isDestroyed = false;
         
         // Set proper rectangular collision body
         this.setBodySize(this.width * 0.8, this.height * 0.8);
@@ -152,6 +157,95 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         if (this.driver) {
             this.driver.setPosition(this.x, this.y);
         }
+    }
+    
+    takeDamage() {
+        // Only non-occupied vehicles can be damaged
+        if (this.isOccupied || this.isDestroyed) {
+            return;
+        }
+        
+        this.health--;
+        
+        if (this.health === 1) {
+            // First hit - show damage with tint
+            this.setTint(0xcccccc);
+        } else if (this.health <= 0) {
+            // Destroyed
+            this.explode();
+        }
+    }
+    
+    explode() {
+        this.isDestroyed = true;
+        this.health = 0;
+        
+        // Hide the vehicle immediately
+        this.setVisible(false);
+        
+        // Disable physics
+        this.body.enable = false;
+        if (this.entryZone) {
+            this.entryZone.body.enable = false;
+        }
+        
+        // Create smoke cloud explosion effect (same as police car)
+        for (let i = 0; i < 15; i++) {
+            const smoke = this.scene.add.circle(
+                this.x + Phaser.Math.Between(-10, 10),
+                this.y + Phaser.Math.Between(-10, 10),
+                Phaser.Math.Between(10, 20),
+                0x666666,
+                0.7
+            );
+            
+            const scale = Phaser.Math.FloatBetween(1, 2);
+            smoke.setScale(0.1);
+            
+            this.scene.tweens.add({
+                targets: smoke,
+                x: smoke.x + Phaser.Math.Between(-40, 40),
+                y: smoke.y + Phaser.Math.Between(-40, 40),
+                scaleX: scale,
+                scaleY: scale,
+                alpha: 0,
+                duration: Phaser.Math.Between(800, 1200),
+                ease: 'Power2',
+                onComplete: () => smoke.destroy()
+            });
+        }
+        
+        // Respawn after delay
+        this.scene.time.delayedCall(5000, () => {
+            this.respawn();
+        });
+    }
+    
+    respawn() {
+        // Find a new random position away from player
+        const newX = Phaser.Math.Between(200, this.scene.physics.world.bounds.width - 200);
+        const newY = Phaser.Math.Between(200, this.scene.physics.world.bounds.height - 200);
+        
+        // Reset vehicle properties
+        this.setPosition(newX, newY);
+        this.setRotation(Phaser.Math.Between(0, Math.PI * 2));
+        this.setVisible(true);
+        this.clearTint();
+        this.setAlpha(1);
+        this.health = this.maxHealth;
+        this.isDestroyed = false;
+        
+        // Re-enable physics
+        this.body.enable = true;
+        if (this.entryZone) {
+            this.entryZone.body.enable = true;
+            this.entryZone.setPosition(newX, newY);
+        }
+        
+        // Update parked position
+        this.parkedX = newX;
+        this.parkedY = newY;
+        this.parkedRotation = this.rotation;
     }
     
     destroy() {

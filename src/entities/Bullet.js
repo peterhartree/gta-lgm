@@ -5,7 +5,7 @@ class Bullet extends Phaser.Physics.Arcade.Sprite {
         scene.add.existing(this);
         scene.physics.add.existing(this);
         
-        this.setScale(0.5);
+        this.setScale(0.35); // Scale down bullets to 70% of previous size
         this.setTint(0x000000); // Make bullet black
         this.speed = 800;
         this.lifespan = 1000; // 1 second

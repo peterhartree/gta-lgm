@@ -79,7 +79,7 @@ class GameScene extends Phaser.Scene {
         map.setOrigin(0, 0);
         
         // Scale map to fit game world (adjust these values based on your map)
-        const mapScale = 0.5; // Reduced to half size
+        const mapScale = 0.35; // Reduced to 70% of previous size
         map.setScale(mapScale);
         
         // Set world bounds to match map size
@@ -121,6 +121,7 @@ class GameScene extends Phaser.Scene {
         });
         this.editorText.setScrollFactor(0);
         this.editorText.setDepth(1002);
+        this.editorText.setVisible(false); // Start hidden
         
         // Toggle edit mode with 'B' key
         this.input.keyboard.on('keydown-B', () => {
@@ -253,21 +254,28 @@ class GameScene extends Phaser.Scene {
                 'X: Export collision data',
                 `Points: ${this.currentPolygon.length}`
             ]);
+            this.editorText.setVisible(true);
             this.drawCollisionBoundaries();
         } else {
             this.editorText.setText('');
+            this.editorText.setVisible(false);
             this.collisionGraphics.clear();
         }
     }
 
     createPlayer() {
-        this.player = this.physics.add.sprite(400, 300, 'player');
+        // Spawn player at center of the map
+        const centerX = this.physics.world.bounds.width / 2;
+        const centerY = this.physics.world.bounds.height / 2;
+        
+        this.player = this.physics.add.sprite(centerX, centerY, 'player');
         this.player.setCollideWorldBounds(true);
-        this.player.setScale(0.15); // Scale down the player image to match car size
+        this.player.setScale(0.105); // Scale down the player image to 70% of previous size
         
         this.player.speed = 200;
         this.player.isInVehicle = false;
         this.player.currentVehicle = null;
+        this.player.lastDirection = 0; // Store last movement direction in radians
     }
 
     createVehicles() {
@@ -318,6 +326,9 @@ class GameScene extends Phaser.Scene {
         // First set up colliders to prevent walking through vehicles
         this.physics.add.collider(this.player, this.vehicles, this.handlePlayerVehicleCollision, null, this);
         this.physics.add.collider(this.player, this.policeVehicles, this.handlePlayerVehicleCollision, null, this);
+        
+        // Add overlap for pedestrian arrest
+        this.physics.add.overlap(this.player, this.policeVehicles, this.handlePlayerPoliceOverlap, null, this);
         
         // Use entry zones for vehicle entry detection (larger area for easier entry)
         this.physics.add.overlap(this.player, this.vehicleEntryZones, this.handlePlayerEntryZoneOverlap, null, this);
@@ -526,6 +537,8 @@ class GameScene extends Phaser.Scene {
                 const angle = Math.atan2(velocityY, velocityX);
                 // Add PI/2 because sprites face down by default, plus PI to flip 180 degrees
                 this.player.setRotation(angle + Math.PI/2 + Math.PI);
+                // Store the last direction for shooting
+                this.player.lastDirection = angle;
             }
         }
     }
@@ -704,13 +717,26 @@ class GameScene extends Phaser.Scene {
     }
     
     updateArrestTimer(delta) {
-        // Check if player is in a vehicle and being touched by police
-        if (this.player.isInVehicle && this.player.currentVehicle && this.arrestingPolice) {
-            // Check if police is still touching player's vehicle
-            const distance = Phaser.Math.Distance.Between(
-                this.arrestingPolice.x, this.arrestingPolice.y,
-                this.player.currentVehicle.x, this.player.currentVehicle.y
-            );
+        // Check if player is being arrested (either in vehicle or on foot)
+        if (this.arrestingPolice) {
+            let distance;
+            
+            if (this.player.isInVehicle && this.player.currentVehicle) {
+                // Check distance to player's vehicle
+                distance = Phaser.Math.Distance.Between(
+                    this.arrestingPolice.x, this.arrestingPolice.y,
+                    this.player.currentVehicle.x, this.player.currentVehicle.y
+                );
+            } else if (!this.player.isInVehicle) {
+                // Check distance to player on foot
+                distance = Phaser.Math.Distance.Between(
+                    this.arrestingPolice.x, this.arrestingPolice.y,
+                    this.player.x, this.player.y
+                );
+            } else {
+                // Player is in a vehicle but it's not their current vehicle somehow
+                distance = Infinity;
+            }
             
             // If still touching (within collision distance)
             if (distance < 80) {
@@ -736,7 +762,7 @@ class GameScene extends Phaser.Scene {
                 this.arrestTimerBg.setVisible(false);
             }
         } else {
-            // Reset if player exits vehicle
+            // Reset if no arresting police
             this.arrestTimer = 0;
             this.arrestingPolice = null;
             this.arrestTimerBar.setVisible(false);
@@ -766,19 +792,8 @@ class GameScene extends Phaser.Scene {
                 shootX = this.player.x;
                 shootY = this.player.y;
                 
-                // Determine shoot direction based on last movement
-                if (this.cursors.left.isDown || this.wasd.A.isDown) {
-                    shootAngle = Math.PI; // Left
-                } else if (this.cursors.right.isDown || this.wasd.D.isDown) {
-                    shootAngle = 0; // Right
-                } else if (this.cursors.up.isDown || this.wasd.W.isDown) {
-                    shootAngle = -Math.PI/2; // Up
-                } else if (this.cursors.down.isDown || this.wasd.S.isDown) {
-                    shootAngle = Math.PI/2; // Down
-                } else {
-                    // Default to right if not moving
-                    shootAngle = 0;
-                }
+                // Use the last direction the player was moving
+                shootAngle = this.player.lastDirection;
             }
             
             this.fireBullet(shootX, shootY, shootAngle);
@@ -814,16 +829,31 @@ class GameScene extends Phaser.Scene {
         }
     }
     
+    handlePlayerPoliceOverlap(player, police) {
+        // Only arrest if player is on foot and police is active
+        if (!this.player.isInVehicle && police.isChasing) {
+            // Start or continue arrest
+            if (this.arrestingPolice !== police) {
+                this.arrestingPolice = police;
+                this.arrestTimer = 0;
+            }
+        }
+    }
+    
     handleBulletVehicleCollision(bullet, vehicle) {
         bullet.hit();
         
         // Add some visual/audio feedback
         this.cameras.main.shake(50, 0.005);
         
-        // If it's a police vehicle, damage it
-        if (vehicle instanceof PoliceVehicle) {
+        // Damage any vehicle that isn't the player's current vehicle
+        if (!this.player.isInVehicle || this.player.currentVehicle !== vehicle) {
             vehicle.takeDamage();
-            this.increaseWantedLevel(2);
+            
+            // If it's a police vehicle, increase wanted level more
+            if (vehicle instanceof PoliceVehicle) {
+                this.increaseWantedLevel(2);
+            }
         }
     }
 }

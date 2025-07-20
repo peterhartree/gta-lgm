@@ -1,7 +1,7 @@
 const config = {
     type: Phaser.AUTO,
-    width: 1800,
-    height: 1000,
+    width: 1300,
+    height: 700,
     parent: 'game-container',
     backgroundColor: '#2d2d2d',
     physics: {
