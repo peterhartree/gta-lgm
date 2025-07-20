@@ -47,6 +47,11 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         // Assign random radio station
         const radioStations = ['radio-bonnie', 'radio-rio'];
         this.radioStation = radioStations[Math.floor(Math.random() * radioStations.length)];
+        
+        // Skid mark tracking
+        this.isSkidding = false;
+        this.previousAngularVelocity = 0;
+        this.skidMarkManager = null; // Will be set by GameScene
     }
     
     enterVehicle(player) {
@@ -137,6 +142,40 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         } else {
             this.setAngularVelocity(0);
         }
+        
+        // Check for skidding conditions
+        const angularVelocity = this.body.angularVelocity;
+        const angularAcceleration = Math.abs(angularVelocity - this.previousAngularVelocity) / dt;
+        const speed = Math.abs(this.currentSpeed);
+        
+        // Skid if turning sharply at high speed
+        const isSharpTurn = Math.abs(angularVelocity) > 150 && speed > 200;
+        const isSuddenTurn = angularAcceleration > 500 && speed > 150;
+        
+        this.isSkidding = isSharpTurn || isSuddenTurn || (handbrakePressed && speed > 50);
+        
+        // Create skid marks at rear wheel positions
+        if (this.isSkidding && this.skidMarkManager) {
+            const rearOffset = 15; // Distance from center to rear of car
+            const wheelOffset = 10; // Distance from center line to wheels
+            
+            // Calculate rear wheel positions
+            const rearAngle = this.rotation + Math.PI / 2;
+            const rearX = this.x - Math.cos(rearAngle) * rearOffset;
+            const rearY = this.y - Math.sin(rearAngle) * rearOffset;
+            
+            // Left wheel
+            const leftX = rearX - Math.cos(this.rotation) * wheelOffset;
+            const leftY = rearY - Math.sin(this.rotation) * wheelOffset;
+            this.skidMarkManager.addSkidMark(leftX, leftY, this.rotation, 'left');
+            
+            // Right wheel
+            const rightX = rearX + Math.cos(this.rotation) * wheelOffset;
+            const rightY = rearY + Math.sin(this.rotation) * wheelOffset;
+            this.skidMarkManager.addSkidMark(rightX, rightY, this.rotation, 'right');
+        }
+        
+        this.previousAngularVelocity = angularVelocity;
         
         const velocityX = Math.cos(this.rotation - Math.PI/2) * this.currentSpeed;
         const velocityY = Math.sin(this.rotation - Math.PI/2) * this.currentSpeed;

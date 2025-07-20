@@ -27,6 +27,10 @@ class GameScene extends Phaser.Scene {
         this.createCollisionGroups();
         this.loadPredefinedCollisions();
         this.createPlayer();
+        
+        // Create skid mark manager before vehicles
+        this.skidMarkManager = new SkidMarkManager(this);
+        
         this.createVehicles();
         this.createPedestrians();
         this.createControls();
@@ -305,6 +309,7 @@ class GameScene extends Phaser.Scene {
                 vehicle.rotation = Phaser.Math.DegToRad(pos.angle + 90); // Adjust rotation for proper orientation
                 vehicle.parkedRotation = vehicle.rotation; // Update parked rotation
             }
+            vehicle.skidMarkManager = this.skidMarkManager;
             this.vehicles.add(vehicle);
             this.vehicleEntryZones.add(vehicle.entryZone);
         });
@@ -503,6 +508,11 @@ class GameScene extends Phaser.Scene {
         
         // Update UI
         this.controlsUI.update(this.player);
+        
+        // Update skid marks
+        if (this.skidMarkManager) {
+            this.skidMarkManager.update();
+        }
     }
 
     handlePlayerMovement() {
@@ -640,6 +650,7 @@ class GameScene extends Phaser.Scene {
         const y = targetPos.y + Math.sin(angle) * spawnDistance;
         
         const police = new PoliceVehicle(this, x, y);
+        police.skidMarkManager = this.skidMarkManager;
         this.policeVehicles.add(police);
         // Add the police vehicle's entry zone to the entry zones group
         this.vehicleEntryZones.add(police.entryZone);
