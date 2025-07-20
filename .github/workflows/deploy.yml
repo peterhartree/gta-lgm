@@ -11,6 +11,17 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: npm install
+      
+    - name: Build project
+      run: npm run build
+    
     - name: Deploy to FTP
       uses: SamKirkland/FTP-Deploy-Action@v4.3.4
       with:
@@ -18,18 +29,7 @@ jobs:
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
         server-dir: files.pjh.is/gta-lgm/
+        local-dir: ./dist/
         exclude: |
-          **/.git*
-          **/.git*/**
-          **/node_modules/**
-          **/.github/**
-          **/README.md
           **/.DS_Store
-          **/_docs/**
-          **/package.json
-          **/package-lock.json
-          **/.env
-          **/.env.*
-          **/*.log
-          **/*.map
           **/Thumbs.db

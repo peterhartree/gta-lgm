@@ -5,7 +5,8 @@
   "main": "src/game.js",
   "scripts": {
     "start": "http-server -p 8080",
-    "dev": "http-server -p 8080"
+    "dev": "http-server -p 8080",
+    "build": "./build.sh"
   },
   "dependencies": {
     "phaser": "^3.70.0"

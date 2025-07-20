@@ -8,4 +8,4 @@ dist/
 .idea/
 *.swp
 *.swo
-.claude/
+.claude/dist/
