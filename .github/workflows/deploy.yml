@@ -18,3 +18,18 @@ jobs:
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
         server-dir: files.pjh.is/gta-lgm/
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+          **/.github/**
+          **/README.md
+          **/.DS_Store
+          **/_docs/**
+          **/package.json
+          **/package-lock.json
+          **/.env
+          **/.env.*
+          **/*.log
+          **/*.map
+          **/Thumbs.db
