@@ -10,7 +10,9 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         this.setDrag(100);
         this.setAngularDrag(100);
         this.setMaxVelocity(500);
-        this.setMass(2);
+        this.setMass(1000);
+        this.setScale(0.5); // Scale down the car sprites
+        this.setImmovable(true); // Start as immovable when unoccupied
         
         this.maxSpeed = 400;
         this.acceleration = 300;
@@ -22,7 +24,24 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         this.isOccupied = false;
         this.driver = null;
         
+        // Set proper rectangular collision body
         this.setBodySize(this.width * 0.8, this.height * 0.8);
+        
+        // Create a larger invisible sensor for entry detection
+        this.entryZone = scene.add.rectangle(x, y, this.width * 1.8, this.height * 1.8);
+        this.entryZone.setVisible(false);
+        scene.physics.add.existing(this.entryZone);
+        this.entryZone.body.setImmovable(true);
+        this.entryZone.vehicle = this; // Reference back to this vehicle
+        
+        // Store initial position for unoccupied state
+        this.parkedX = x;
+        this.parkedY = y;
+        this.parkedRotation = this.rotation;
+        
+        // Assign random radio station
+        const radioStations = ['radio-bonnie', 'radio-rio'];
+        this.radioStation = radioStations[Math.floor(Math.random() * radioStations.length)];
     }
     
     enterVehicle(player) {
@@ -31,6 +50,8 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
             this.driver = player;
             player.setVisible(false);
             player.body.enable = false;
+            this.setImmovable(false); // Make vehicle movable when occupied
+            
             return true;
         }
         return false;
@@ -38,8 +59,8 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
     
     exitVehicle() {
         if (this.isOccupied && this.driver) {
-            const exitX = this.x + Math.cos(this.rotation) * 50;
-            const exitY = this.y + Math.sin(this.rotation) * 50;
+            const exitX = this.x + Math.cos(this.rotation - Math.PI/2) * 50;
+            const exitY = this.y + Math.sin(this.rotation - Math.PI/2) * 50;
             
             this.driver.setPosition(exitX, exitY);
             this.driver.setVisible(true);
@@ -50,11 +71,30 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
             this.currentSpeed = 0;
             this.setVelocity(0, 0);
             this.setAngularVelocity(0);
+            this.setImmovable(true); // Make vehicle immovable when unoccupied
+            
+            // Update parked position to current position when exiting
+            this.parkedX = this.x;
+            this.parkedY = this.y;
+            this.parkedRotation = this.rotation;
         }
     }
     
     update(cursors, wasd, handbrakeKey, delta) {
-        if (!this.isOccupied) return;
+        // Always update entry zone position to follow vehicle
+        if (this.entryZone) {
+            this.entryZone.setPosition(this.x, this.y);
+            this.entryZone.setRotation(this.rotation);
+        }
+        
+        if (!this.isOccupied) {
+            // Force unoccupied vehicles to stay in their parked position
+            this.setPosition(this.parkedX, this.parkedY);
+            this.setRotation(this.parkedRotation);
+            this.setVelocity(0, 0);
+            this.setAngularVelocity(0);
+            return;
+        }
         
         const dt = delta / 1000;
         
@@ -62,7 +102,7 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         const backwardPressed = cursors.down.isDown || wasd.S.isDown;
         const leftPressed = cursors.left.isDown || wasd.A.isDown;
         const rightPressed = cursors.right.isDown || wasd.D.isDown;
-        const handbrakePressed = handbrakeKey.isDown;
+        const handbrakePressed = false; // Handbrake disabled
         
         
         if (forwardPressed) {
@@ -93,8 +133,8 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
             this.setAngularVelocity(0);
         }
         
-        const velocityX = Math.cos(this.rotation) * this.currentSpeed;
-        const velocityY = Math.sin(this.rotation) * this.currentSpeed;
+        const velocityX = Math.cos(this.rotation - Math.PI/2) * this.currentSpeed;
+        const velocityY = Math.sin(this.rotation - Math.PI/2) * this.currentSpeed;
         
         if (handbrakePressed && Math.abs(this.currentSpeed) > 50) {
             const driftFactor = 0.7;
@@ -112,5 +152,13 @@ class Vehicle extends Phaser.Physics.Arcade.Sprite {
         if (this.driver) {
             this.driver.setPosition(this.x, this.y);
         }
+    }
+    
+    destroy() {
+        // Clean up the entry zone when vehicle is destroyed
+        if (this.entryZone) {
+            this.entryZone.destroy();
+        }
+        super.destroy();
     }
 }

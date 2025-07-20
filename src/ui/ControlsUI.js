@@ -10,7 +10,7 @@ class ControlsUI {
             'Controls:',
             'WASD/Arrows - Move',
             'E - Enter/Exit Vehicle',
-            'Space - Handbrake',
+            'F/Space - Shoot',
             'H - Horn',
             'B - Collision Editor',
             'T - Test Wanted Level'
@@ -37,6 +37,17 @@ class ControlsUI {
 
         this.debugText.setScrollFactor(0);
         this.debugText.setDepth(1000);
+        
+        // Create radio display
+        this.radioText = this.scene.add.text(10, 180, '', {
+            font: '16px monospace',
+            fill: '#ffff00',
+            backgroundColor: '#000000',
+            padding: { x: 10, y: 5 }
+        });
+        
+        this.radioText.setScrollFactor(0);
+        this.radioText.setDepth(1000);
     }
 
     update(player) {
@@ -52,5 +63,14 @@ class ControlsUI {
         }
         
         this.debugText.setText(debugInfo);
+        
+        // Update radio display
+        if (player.isInVehicle && player.currentVehicle) {
+            const station = player.currentVehicle.radioStation;
+            const stationName = station === 'radio-bonnie' ? 'Bonnie & Clyde FM' : 'Rio Radio';
+            this.radioText.setText(`📻 ${stationName}`);
+        } else {
+            this.radioText.setText('');
+        }
     }
 }

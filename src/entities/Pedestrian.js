@@ -1,6 +1,10 @@
 class Pedestrian extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y) {
-        super(scene, x, y, 'pedestrian');
+        // Choose random pedestrian sprite
+        const pedestrianTextures = ['person-1', 'person-2', 'person-3', 'person-4'];
+        const randomTexture = pedestrianTextures[Math.floor(Math.random() * pedestrianTextures.length)];
+        
+        super(scene, x, y, randomTexture);
         
         scene.add.existing(this);
         scene.physics.add.existing(this);
@@ -8,6 +12,7 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
         this.setCollideWorldBounds(true);
         this.setBounce(0.1);
         this.setDrag(300);
+        this.setScale(0.15); // Scale down the pedestrian images to match car size
         
         this.walkSpeed = 60;
         this.runSpeed = 150;
@@ -17,16 +22,14 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
         this.walkTimer = 0;
         this.currentDirection = Phaser.Math.Between(0, 360);
         
-        this.setBodySize(this.width * 0.8, this.height * 0.8);
-        this.setTint(this.getRandomPedColor());
+        this.setBodySize(this.width * 0.5, this.height * 0.5);
         
         this.changeDirectionTime = Phaser.Math.Between(2000, 5000);
+        
+        // Store original texture for respawn
+        this.originalTexture = randomTexture;
     }
     
-    getRandomPedColor() {
-        const colors = [0xffcccc, 0xccffcc, 0xccccff, 0xffffcc, 0xffccff, 0xccffff];
-        return colors[Phaser.Math.Between(0, colors.length - 1)];
-    }
     
     update(time, delta, vehicles, player) {
         if (!this.isAlive) {
@@ -93,6 +96,10 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
             const velocityX = Math.cos(angle) * this.runSpeed;
             const velocityY = Math.sin(angle) * this.runSpeed;
             this.setVelocity(velocityX, velocityY);
+            
+            // Update rotation to face movement direction
+            // Add PI to flip 180 degrees
+            this.setRotation(angle + Math.PI/2 + Math.PI);
         }
     }
     
@@ -110,6 +117,10 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
         const velocityY = Math.sin(radian) * this.walkSpeed;
         
         this.setVelocity(velocityX, velocityY);
+        
+        // Update rotation to face movement direction
+        // Add PI/2 because sprites face down by default, plus PI to flip 180 degrees
+        this.setRotation(radian + Math.PI/2 + Math.PI);
     }
     
     getHit(vehicle) {
@@ -119,9 +130,14 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
         
         if (impactSpeed > 100) {
             this.isAlive = false;
-            this.setTint(0x666666);
+            this.setTint(0x666666); // Dark tint for dead pedestrian
             
-            const angle = vehicle.rotation;
+            // Play death sound
+            if (this.scene.soundManager) {
+                this.scene.soundManager.playPedestrianDeath();
+            }
+            
+            const angle = vehicle.rotation - Math.PI/2;
             const knockbackX = Math.cos(angle) * impactSpeed * 2;
             const knockbackY = Math.sin(angle) * impactSpeed * 2;
             
@@ -136,6 +152,9 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
             const pushX = Math.cos(angle) * 200;
             const pushY = Math.sin(angle) * 200;
             this.setVelocity(pushX, pushY);
+            
+            // Update rotation when pushed
+            this.setRotation(angle + Math.PI/2 + Math.PI);
         }
     }
     
@@ -146,7 +165,7 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
         this.setPosition(x, y);
         this.setVelocity(0, 0);
         this.setAngularVelocity(0);
-        this.setTint(this.getRandomPedColor());
+        this.clearTint(); // Remove death tint
         this.isAlive = true;
         this.isPanicking = false;
         this.currentDirection = Phaser.Math.Between(0, 360);

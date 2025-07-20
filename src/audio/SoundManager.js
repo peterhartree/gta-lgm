@@ -3,7 +3,10 @@ class SoundManager {
         this.scene = scene;
         this.enabled = true;
         this.audioContext = null;
+        this.radioStations = {};
+        this.currentStation = null;
         this.initAudioContext();
+        this.initRadioStations();
     }
     
     initAudioContext() {
@@ -77,10 +80,13 @@ class SoundManager {
     }
     
     playSiren() {
-        if (!this.enabled) return;
-        // Alternating high-low siren
-        this.playTone(800, 0.3, 'square', 0.2);
-        setTimeout(() => this.playTone(600, 0.3, 'square', 0.2), 300);
+        if (!this.enabled || !this.scene.sound) return;
+        
+        // Play the police siren sound file
+        this.scene.sound.play('police-siren', {
+            volume: 0.2
+        });
+        
         console.log('Sound: Siren on');
     }
     
@@ -104,11 +110,108 @@ class SoundManager {
         console.log('Sound: Pedestrian hit!');
     }
     
+    playPedestrianDeath() {
+        if (!this.enabled || !this.scene.sound) return;
+        
+        const deathSounds = [
+            'death-merde',
+            'death-mon-dieu',
+            'death-sacre-blue',
+            'death-zut-alors',
+            'death-zut'
+        ];
+        
+        // Pick a random death sound
+        const randomSound = deathSounds[Math.floor(Math.random() * deathSounds.length)];
+        
+        // Play the sound
+        this.scene.sound.play(randomSound, {
+            volume: 4.0
+        });
+        
+        console.log('Sound: Pedestrian death -', randomSound);
+    }
+    
     playCarHorn() {
         if (!this.enabled) return;
         // Classic car horn
         this.playTone(400, 0.3, 'square', 0.3);
         this.playTone(300, 0.3, 'square', 0.3);
         console.log('Sound: Honk!');
+    }
+    
+    playGunshot() {
+        if (!this.enabled || !this.scene.sound) return;
+        
+        // Play the gunshot sound file
+        this.scene.sound.play('gunshot', {
+            volume: 0.4
+        });
+        
+        console.log('Sound: Gunshot!');
+    }
+    
+    initRadioStations() {
+        // Initialize all radio stations
+        if (this.scene.sound) {
+            const stationNames = ['radio-bonnie', 'radio-rio'];
+            
+            stationNames.forEach(station => {
+                this.radioStations[station] = {
+                    music: this.scene.sound.add(station, {
+                        volume: 0.6,
+                        loop: true
+                    }),
+                    position: 0
+                };
+                console.log(`Radio station ${station} loaded`);
+            });
+        }
+    }
+    
+    playRadio(stationName) {
+        // Stop current station if different
+        if (this.currentStation && this.currentStation !== stationName) {
+            this.stopRadio();
+        }
+        
+        const station = this.radioStations[stationName];
+        if (station && !station.music.isPlaying) {
+            this.currentStation = stationName;
+            
+            // Resume from saved position
+            if (station.position > 0) {
+                station.music.play({
+                    seek: station.position
+                });
+                console.log(`Radio: ${stationName} resumed at`, station.position);
+            } else {
+                station.music.play();
+                console.log(`Radio: ${stationName} started`);
+            }
+        }
+    }
+    
+    stopRadio() {
+        if (this.currentStation) {
+            const station = this.radioStations[this.currentStation];
+            if (station && station.music.isPlaying) {
+                // Save current position before stopping
+                station.position = station.music.seek;
+                station.music.pause(); // Use pause instead of stop to preserve position
+                console.log(`Radio: ${this.currentStation} paused at`, station.position);
+            }
+            this.currentStation = null;
+        }
+    }
+    
+    resetRadio() {
+        // Stop all stations and reset positions
+        Object.values(this.radioStations).forEach(station => {
+            station.music.stop();
+            station.position = 0;
+        });
+        this.currentStation = null;
+        console.log('Radio: All stations stopped');
     }
 }

@@ -1,16 +1,20 @@
 class PoliceVehicle extends Vehicle {
     constructor(scene, x, y) {
-        super(scene, x, y, 'police_car');
+        super(scene, x, y, 'car-police');
         
         this.setTint(0xffffff);
-        this.maxSpeed = 450;
-        this.acceleration = 400;
+        this.maxSpeed = 350; // Slower than player's 400
+        this.acceleration = 350; // Slightly slower acceleration too
         this.turnSpeed = 250;
         
         this.target = null;
         this.pursuitSpeed = 0;
         this.isChasing = false;
         this.sirenActive = false;
+        
+        // Health system
+        this.health = 2;
+        this.isDestroyed = false;
     }
     
     startPursuit(target) {
@@ -32,7 +36,11 @@ class PoliceVehicle extends Vehicle {
         this.isChasing = false;
         this.sirenActive = false;
         this.pursuitSpeed = 0;
-        this.setVelocity(0, 0);
+        
+        // Only set velocity if not destroyed
+        if (!this.isDestroyed && this.body) {
+            this.setVelocity(0, 0);
+        }
         
         // Stop siren
         if (this.sirenInterval) {
@@ -43,8 +51,72 @@ class PoliceVehicle extends Vehicle {
         console.log('Police: Pursuit ended');
     }
     
+    takeDamage() {
+        if (this.isDestroyed) return;
+        
+        this.health--;
+        
+        // Flash red when hit
+        this.setTint(0xff0000);
+        this.scene.time.delayedCall(100, () => {
+            this.setTint(0xffffff);
+        });
+        
+        if (this.health <= 0) {
+            this.destroy();
+        }
+    }
+    
+    destroy(showExplosion = true) {
+        if (this.isDestroyed) return; // Prevent double destruction
+        
+        this.isDestroyed = true;
+        this.stopPursuit();
+        
+        if (this.body) {
+            this.setVelocity(0, 0);
+        }
+        
+        this.setVisible(false); // Hide immediately
+        
+        // Create explosion smoke effect only when destroyed by damage
+        if (showExplosion) {
+                for (let i = 0; i < 15; i++) {
+                const smoke = this.scene.add.circle(
+                    this.x + Phaser.Math.Between(-30, 30),
+                    this.y + Phaser.Math.Between(-30, 30),
+                    Phaser.Math.Between(20, 40),
+                    0x666666,
+                    0.8
+                );
+                
+                this.scene.tweens.add({
+                    targets: smoke,
+                    alpha: 0,
+                    scale: 3,
+                    duration: 2000,
+                    delay: i * 50,
+                    onComplete: () => smoke.destroy()
+                });
+            }
+        }
+        
+        // Remove after delay
+        this.scene.time.delayedCall(500, () => {
+            if (this.scene) {
+                this.scene.policeVehicles.remove(this);
+                // Also remove the entry zone from the group
+                if (this.entryZone && this.scene.vehicleEntryZones) {
+                    this.scene.vehicleEntryZones.remove(this.entryZone);
+                    this.entryZone.destroy();
+                }
+                super.destroy();
+            }
+        });
+    }
+    
     updatePursuit(delta) {
-        if (!this.isChasing || !this.target) return;
+        if (!this.isChasing || !this.target || this.isDestroyed) return;
         
         const dt = delta / 1000;
         
@@ -61,7 +133,7 @@ class PoliceVehicle extends Vehicle {
         
         const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
         
-        const targetAngle = angle + Math.PI / 2;
+        const targetAngle = angle + Math.PI/2;
         let angleDiff = targetAngle - this.rotation;
         
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -77,7 +149,7 @@ class PoliceVehicle extends Vehicle {
         }
         
         if (targetVehicle && distance < 100 && this.pursuitSpeed > 200) {
-            this.pursuitSpeed = this.maxSpeed * 1.2;
+            this.pursuitSpeed = this.maxSpeed; // No speed boost for ramming
         }
         
         const velocityX = Math.cos(this.rotation - Math.PI/2) * this.pursuitSpeed;

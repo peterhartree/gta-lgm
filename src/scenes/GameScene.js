@@ -9,6 +9,14 @@ class GameScene extends Phaser.Scene {
         this.wantedLevel = 0;
         this.wantedDecayTimer = 0;
         this.policeSpawnTimer = 0;
+        this.wantedActiveTimer = 0; // Track how long we've been wanted
+        this.pedestrianKillCount = 0; // Track pedestrian kills for wanted level
+        
+        // Game state
+        this.isGameOver = false;
+        this.arrestTimer = 0;
+        this.arrestingPolice = null;
+        this.lastCollisionSound = 0;
         
         // Collision editor mode
         this.editMode = false;
@@ -34,16 +42,34 @@ class GameScene extends Phaser.Scene {
         
         this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
         this.cameras.main.setZoom(1);
+        
+        // Create game over UI
+        this.createGameOverUI();
+        
+        // Create arrest timer UI
+        this.arrestTimerBar = this.add.rectangle(this.cameras.main.width / 2, 50, 0, 20, 0xff0000);
+        this.arrestTimerBar.setScrollFactor(0);
+        this.arrestTimerBar.setDepth(1500);
+        this.arrestTimerBar.setVisible(false);
+        
+        this.arrestTimerBg = this.add.rectangle(this.cameras.main.width / 2, 50, 200, 20, 0x000000);
+        this.arrestTimerBg.setScrollFactor(0);
+        this.arrestTimerBg.setDepth(1499);
+        this.arrestTimerBg.setVisible(false);
     }
 
     createCollisionGroups() {
         this.buildings = this.physics.add.staticGroup();
-        this.parkedCars = this.physics.add.group();
         this.pedestrians = this.physics.add.group({
             classType: Pedestrian
         });
         this.policeVehicles = this.physics.add.group({
             classType: PoliceVehicle
+        });
+        this.bullets = this.physics.add.group({
+            classType: Bullet,
+            maxSize: 50,
+            runChildUpdate: false
         });
     }
 
@@ -237,6 +263,7 @@ class GameScene extends Phaser.Scene {
     createPlayer() {
         this.player = this.physics.add.sprite(400, 300, 'player');
         this.player.setCollideWorldBounds(true);
+        this.player.setScale(0.15); // Scale down the player image to match car size
         
         this.player.speed = 200;
         this.player.isInVehicle = false;
@@ -248,36 +275,30 @@ class GameScene extends Phaser.Scene {
             classType: Vehicle
         });
         
+        // Create a group for vehicle entry zones
+        this.vehicleEntryZones = this.physics.add.group();
+        
         const vehiclePositions = [
-            { x: 300, y: 200 },
-            { x: 600, y: 400 },
-            { x: 200, y: 600 },
-            { x: 800, y: 300 },
-            { x: 500, y: 700 }
+            { x: 300, y: 200, angle: 0 },
+            { x: 600, y: 400, angle: 0 },
+            { x: 150, y: 150, angle: 0 },
+            { x: 350, y: 350, angle: 90 },
+            { x: 550, y: 550, angle: 45 },
+            { x: 950, y: 450, angle: 180 }
         ];
+        
+        const carTextures = ['car-red', 'car-white', 'car-taxi'];
         
         vehiclePositions.forEach(pos => {
-            const vehicle = new Vehicle(this, pos.x, pos.y, 'car');
+            const texture = carTextures[Math.floor(Math.random() * carTextures.length)];
+            const vehicle = new Vehicle(this, pos.x, pos.y, texture);
+            if (pos.angle) {
+                vehicle.setAngle(pos.angle);
+                vehicle.rotation = Phaser.Math.DegToRad(pos.angle + 90); // Adjust rotation for proper orientation
+                vehicle.parkedRotation = vehicle.rotation; // Update parked rotation
+            }
             this.vehicles.add(vehicle);
-        });
-        
-        const parkedPositions = [
-            { x: 150, y: 150, angle: 0 },
-            { x: 150, y: 180, angle: 0 },
-            { x: 350, y: 350, angle: 90 },
-            { x: 350, y: 380, angle: 90 },
-            { x: 750, y: 150, angle: 0 },
-            { x: 750, y: 180, angle: 0 },
-            { x: 550, y: 550, angle: 45 }
-        ];
-        
-        parkedPositions.forEach(pos => {
-            const parkedCar = this.physics.add.sprite(pos.x, pos.y, 'car');
-            parkedCar.setTint(0x808080);
-            parkedCar.setAngle(pos.angle);
-            parkedCar.setImmovable(true);
-            parkedCar.setBounce(0.2);
-            this.parkedCars.add(parkedCar);
+            this.vehicleEntryZones.add(vehicle.entryZone);
         });
     }
 
@@ -294,19 +315,19 @@ class GameScene extends Phaser.Scene {
     }
 
     setupCollisions() {
-        this.physics.add.overlap(this.player, this.vehicles, this.handlePlayerVehicleOverlap, null, this);
-        this.physics.add.overlap(this.player, this.policeVehicles, this.handlePlayerVehicleOverlap, null, this);
+        // First set up colliders to prevent walking through vehicles
+        this.physics.add.collider(this.player, this.vehicles, this.handlePlayerVehicleCollision, null, this);
+        this.physics.add.collider(this.player, this.policeVehicles, this.handlePlayerVehicleCollision, null, this);
+        
+        // Use entry zones for vehicle entry detection (larger area for easier entry)
+        this.physics.add.overlap(this.player, this.vehicleEntryZones, this.handlePlayerEntryZoneOverlap, null, this);
         
         this.physics.add.collider(this.player, this.buildings);
         this.physics.add.collider(this.vehicles, this.buildings, this.handleVehicleBuildingCollision, null, this);
         this.physics.add.collider(this.vehicles, this.vehicles, this.handleVehicleVehicleCollision, null, this);
         
-        this.physics.add.collider(this.player, this.parkedCars);
-        this.physics.add.collider(this.vehicles, this.parkedCars, this.handleVehicleParkedCarCollision, null, this);
-        
         this.physics.add.collider(this.pedestrians, this.buildings);
         this.physics.add.collider(this.pedestrians, this.pedestrians);
-        this.physics.add.collider(this.pedestrians, this.parkedCars);
         
         this.physics.add.collider(this.player, this.pedestrians);
         this.physics.add.overlap(this.vehicles, this.pedestrians, this.handleVehiclePedestrianCollision, null, this);
@@ -314,8 +335,13 @@ class GameScene extends Phaser.Scene {
         this.physics.add.collider(this.policeVehicles, this.buildings, this.handleVehicleBuildingCollision, null, this);
         this.physics.add.collider(this.policeVehicles, this.vehicles, this.handlePoliceVehicleCollision, null, this);
         this.physics.add.collider(this.policeVehicles, this.policeVehicles);
-        this.physics.add.collider(this.policeVehicles, this.parkedCars);
         this.physics.add.overlap(this.policeVehicles, this.pedestrians, this.handleVehiclePedestrianCollision, null, this);
+        
+        // Bullet collisions
+        this.physics.add.overlap(this.bullets, this.buildings, this.handleBulletWallCollision, null, this);
+        this.physics.add.overlap(this.bullets, this.pedestrians, this.handleBulletPedestrianCollision, null, this);
+        this.physics.add.overlap(this.bullets, this.vehicles, this.handleBulletVehicleCollision, null, this);
+        this.physics.add.overlap(this.bullets, this.policeVehicles, this.handleBulletVehicleCollision, null, this);
     }
 
     handleVehicleBuildingCollision(vehicle, building) {
@@ -323,7 +349,6 @@ class GameScene extends Phaser.Scene {
         if (speed > 200) {
             this.cameras.main.shake(100, 0.01);
             vehicle.currentSpeed *= 0.3;
-            this.soundManager.playCrash(speed / 400);
         }
     }
 
@@ -331,19 +356,16 @@ class GameScene extends Phaser.Scene {
         const relativeSpeed = Math.abs(vehicle1.currentSpeed - vehicle2.currentSpeed);
         if (relativeSpeed > 150) {
             this.cameras.main.shake(150, 0.02);
-            this.soundManager.playCrash(relativeSpeed / 300);
         }
     }
-
-    handleVehicleParkedCarCollision(vehicle, parkedCar) {
-        const speed = Math.abs(vehicle.currentSpeed);
-        if (speed > 100) {
-            this.cameras.main.shake(80, 0.01);
-            parkedCar.setVelocity(
-                Math.cos(vehicle.rotation) * speed * 0.3,
-                Math.sin(vehicle.rotation) * speed * 0.3
-            );
+    
+    handlePlayerVehicleCollision(player, vehicle) {
+        // Prevent collision only when player is in a different vehicle
+        // or when on foot and vehicle is unoccupied
+        if (player.isInVehicle && player.currentVehicle === vehicle) {
+            return false; // Don't collide with own vehicle
         }
+        return true; // Always collide otherwise
     }
 
     handleVehiclePedestrianCollision(vehicle, pedestrian) {
@@ -354,33 +376,65 @@ class GameScene extends Phaser.Scene {
             const wasAlive = pedestrian.isAlive;
             
             pedestrian.getHit(vehicle);
-            this.soundManager.playPedestrianHit();
             
             if (Math.abs(vehicle.currentSpeed) > 100 && wasAlive) {
-                this.increaseWantedLevel(1);
+                this.pedestrianKillCount++;
+                console.log('Pedestrian kill count:', this.pedestrianKillCount);
+                
+                // Only increase wanted level after 3 kills
+                if (this.pedestrianKillCount >= 3 && this.wantedLevel === 0) {
+                    this.increaseWantedLevel(1);
+                }
             }
         }
     }
 
     handlePoliceVehicleCollision(police, vehicle) {
         const relativeSpeed = Math.abs(police.currentSpeed - vehicle.currentSpeed);
-        if (relativeSpeed > 150) {
-            this.cameras.main.shake(200, 0.03);
-            this.soundManager.playCrash(1.5);
+        
+        // Check if this is the player's vehicle
+        if (vehicle === this.player.currentVehicle) {
+            // Track arrest timer
+            if (this.arrestingPolice === police) {
+                // Continue arrest
+            } else {
+                // New arrest attempt
+                this.arrestingPolice = police;
+                this.arrestTimer = 0;
+            }
             
-            if (vehicle === this.player.currentVehicle) {
+            // Only play crash sound with cooldown
+            const currentTime = this.time.now;
+            if (relativeSpeed > 150 && currentTime - this.lastCollisionSound > 1000) {
+                this.cameras.main.shake(200, 0.03);
                 this.increaseWantedLevel(1);
+                this.lastCollisionSound = currentTime;
+            }
+        } else {
+            // Regular collision between police and other vehicles
+            if (relativeSpeed > 150) {
+                this.cameras.main.shake(100, 0.02);
             }
         }
     }
 
-    handlePlayerVehicleOverlap(player, vehicle) {
+    handlePlayerEntryZoneOverlap(player, entryZone) {
+        // Get the vehicle reference from the entry zone
+        const vehicle = entryZone.vehicle;
+        if (!vehicle) return;
+        
         if (!player.isInVehicle && !vehicle.isOccupied && Phaser.Input.Keyboard.JustDown(this.enterKey)) {
             console.log('Attempting to enter vehicle...');
             if (vehicle.enterVehicle(player)) {
                 player.isInVehicle = true;
                 player.currentVehicle = vehicle;
                 this.cameras.main.startFollow(vehicle, true, 0.08, 0.08);
+                
+                // Start radio music for this specific vehicle (only for regular vehicles, not police)
+                if (vehicle.radioStation) {
+                    this.soundManager.playRadio(vehicle.radioStation);
+                }
+                
                 console.log('Successfully entered vehicle!');
             }
         }
@@ -390,15 +444,29 @@ class GameScene extends Phaser.Scene {
         this.cursors = this.input.keyboard.createCursorKeys();
         this.wasd = this.input.keyboard.addKeys('W,S,A,D');
         this.enterKey = this.input.keyboard.addKey('E');
-        this.handbrakeKey = this.input.keyboard.addKey('SPACE');
         this.hornKey = this.input.keyboard.addKey('H');
         this.testWantedKey = this.input.keyboard.addKey('T'); // Test key
+        
+        // Shooting controls
+        this.shootKey = this.input.keyboard.addKey('F');
+        this.shootKeyAlt = this.input.keyboard.addKey('SPACE');
+        this.lastShotTime = 0;
+        this.shotCooldown = 200; // milliseconds between shots
     }
 
     update(time, delta) {
+        if (this.isGameOver) {
+            // Handle restart
+            if (this.input.keyboard.addKey('SPACE').isDown) {
+                this.restartGame();
+            }
+            return;
+        }
+        
         this.handlePlayerMovement();
         this.handleVehicleExit();
         this.handleHorn();
+        this.handleShooting(time);
         
         // Test wanted level with T key
         if (Phaser.Input.Keyboard.JustDown(this.testWantedKey)) {
@@ -407,9 +475,7 @@ class GameScene extends Phaser.Scene {
         }
         
         this.vehicles.children.entries.forEach(vehicle => {
-            if (vehicle.isOccupied) {
-                vehicle.update(this.cursors, this.wasd, this.handbrakeKey, delta);
-            }
+            vehicle.update(this.cursors, this.wasd, null, delta);
         });
         
         this.policeVehicles.children.entries.forEach(police => {
@@ -422,6 +488,10 @@ class GameScene extends Phaser.Scene {
         
         this.updateWantedLevel(delta);
         this.updatePoliceSpawning(delta);
+        this.updateArrestTimer(delta);
+        
+        // Update UI
+        this.controlsUI.update(this.player);
     }
 
     handlePlayerMovement() {
@@ -450,6 +520,13 @@ class GameScene extends Phaser.Scene {
             }
 
             this.player.setVelocity(velocityX, velocityY);
+            
+            // Update player rotation based on movement direction
+            if (velocityX !== 0 || velocityY !== 0) {
+                const angle = Math.atan2(velocityY, velocityX);
+                // Add PI/2 because sprites face down by default, plus PI to flip 180 degrees
+                this.player.setRotation(angle + Math.PI/2 + Math.PI);
+            }
         }
     }
 
@@ -464,6 +541,9 @@ class GameScene extends Phaser.Scene {
             this.player.currentVehicle = null;
             this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
             
+            // Stop radio music when exiting vehicle
+            this.soundManager.stopRadio();
+            
             console.log('Successfully exited vehicle!');
         }
     }
@@ -477,6 +557,9 @@ class GameScene extends Phaser.Scene {
     increaseWantedLevel(amount) {
         this.wantedLevel = Math.min(this.wantedLevel + amount, 5);
         this.wantedDecayTimer = 0;
+        if (this.wantedLevel > 0 && this.wantedActiveTimer === 0) {
+            this.wantedActiveTimer = 0; // Reset the timer when becoming wanted
+        }
         this.wantedLevelUI.updateWantedLevel(this.wantedLevel);
         console.log('Wanted level:', this.wantedLevel);
     }
@@ -484,13 +567,25 @@ class GameScene extends Phaser.Scene {
     updateWantedLevel(delta) {
         if (this.wantedLevel > 0) {
             this.wantedDecayTimer += delta;
+            this.wantedActiveTimer += delta;
             
-            if (this.wantedDecayTimer > 10000) {
+            // Check if all police are destroyed to reset wanted level
+            if (this.policeVehicles.children.entries.length === 0 && this.wantedActiveTimer > 10000) {
+                this.wantedLevel = 0;
+                this.wantedDecayTimer = 0;
+                this.wantedActiveTimer = 0;
+                this.pedestrianKillCount = 0; // Reset kill count
+                this.wantedLevelUI.updateWantedLevel(this.wantedLevel);
+                console.log('Wanted level reset - all police destroyed');
+            } else if (this.wantedDecayTimer > 10000 && this.wantedActiveTimer >= 15000) {
+                // Only allow wanted level to decrease after 15 seconds minimum
                 this.wantedLevel = Math.max(0, this.wantedLevel - 1);
                 this.wantedDecayTimer = 0;
                 this.wantedLevelUI.updateWantedLevel(this.wantedLevel);
                 console.log('Wanted level decreased to:', this.wantedLevel);
             }
+        } else {
+            this.wantedActiveTimer = 0;
         }
     }
 
@@ -501,16 +596,24 @@ class GameScene extends Phaser.Scene {
             const spawnInterval = Math.max(3000, 8000 - (this.wantedLevel * 1000));
             const maxPolice = Math.min(this.wantedLevel * 2, 6);
             
-            if (this.policeSpawnTimer > spawnInterval && this.policeVehicles.children.entries.length < maxPolice) {
+            // Only spawn police after 5 seconds of being wanted and stop spawning after 10 seconds
+            if (this.wantedActiveTimer >= 5000 && 
+                this.wantedActiveTimer < 10000 && 
+                this.policeSpawnTimer > spawnInterval && 
+                this.policeVehicles.children.entries.length < maxPolice) {
                 this.spawnPolice();
                 this.policeSpawnTimer = 0;
             }
         } else {
             this.policeVehicles.children.entries.forEach(police => {
-                police.stopPursuit();
-                this.time.delayedCall(2000, () => {
-                    police.destroy();
-                });
+                if (!police.isDestroyed) {
+                    police.stopPursuit();
+                    this.time.delayedCall(2000, () => {
+                        if (police.scene && !police.isDestroyed) {
+                            police.destroy(false); // No explosion, just disappear
+                        }
+                    });
+                }
             });
         }
     }
@@ -525,9 +628,202 @@ class GameScene extends Phaser.Scene {
         
         const police = new PoliceVehicle(this, x, y);
         this.policeVehicles.add(police);
+        // Add the police vehicle's entry zone to the entry zones group
+        this.vehicleEntryZones.add(police.entryZone);
         police.startPursuit(this.player);
         this.soundManager.playSiren();
         
         console.log('Police spawned at', x, y);
+    }
+    
+    createGameOverUI() {
+        // Game over background
+        this.gameOverBg = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, 
+            this.cameras.main.width, this.cameras.main.height, 0x000000, 0.8);
+        this.gameOverBg.setScrollFactor(0);
+        this.gameOverBg.setDepth(2000);
+        this.gameOverBg.setVisible(false);
+        
+        // Game over text
+        this.gameOverText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 - 50, 
+            'ARRESTED', {
+            fontSize: '72px',
+            fontFamily: 'Arial Black',
+            color: '#ff0000',
+            stroke: '#000000',
+            strokeThickness: 8
+        });
+        this.gameOverText.setOrigin(0.5);
+        this.gameOverText.setScrollFactor(0);
+        this.gameOverText.setDepth(2001);
+        this.gameOverText.setVisible(false);
+        
+        // Restart text
+        this.restartText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + 50,
+            'Press SPACE to restart', {
+            fontSize: '24px',
+            fontFamily: 'Arial',
+            color: '#ffffff'
+        });
+        this.restartText.setOrigin(0.5);
+        this.restartText.setScrollFactor(0);
+        this.restartText.setDepth(2001);
+        this.restartText.setVisible(false);
+    }
+    
+    showGameOver() {
+        this.isGameOver = true;
+        this.gameOverBg.setVisible(true);
+        this.gameOverText.setVisible(true);
+        this.restartText.setVisible(true);
+        
+        // Stop radio music completely (reset position)
+        this.soundManager.resetRadio();
+        
+        // Stop all vehicles
+        this.vehicles.children.entries.forEach(vehicle => {
+            vehicle.setVelocity(0, 0);
+            vehicle.setAngularVelocity(0);
+        });
+        
+        this.policeVehicles.children.entries.forEach(police => {
+            police.setVelocity(0, 0);
+            police.setAngularVelocity(0);
+        });
+        
+        // Stop player
+        this.player.setVelocity(0, 0);
+        if (this.player.currentVehicle) {
+            this.player.currentVehicle.setVelocity(0, 0);
+            this.player.currentVehicle.setAngularVelocity(0);
+        }
+    }
+    
+    restartGame() {
+        this.scene.restart();
+    }
+    
+    updateArrestTimer(delta) {
+        // Check if player is in a vehicle and being touched by police
+        if (this.player.isInVehicle && this.player.currentVehicle && this.arrestingPolice) {
+            // Check if police is still touching player's vehicle
+            const distance = Phaser.Math.Distance.Between(
+                this.arrestingPolice.x, this.arrestingPolice.y,
+                this.player.currentVehicle.x, this.player.currentVehicle.y
+            );
+            
+            // If still touching (within collision distance)
+            if (distance < 80) {
+                this.arrestTimer += delta;
+                
+                // Show arrest timer bar
+                this.arrestTimerBar.setVisible(true);
+                this.arrestTimerBg.setVisible(true);
+                
+                // Update bar width (max 200 pixels for 5 seconds)
+                const progress = Math.min(this.arrestTimer / 5000, 1);
+                this.arrestTimerBar.width = progress * 200;
+                
+                // Check if arrested (5 seconds = 5000ms)
+                if (this.arrestTimer >= 5000) {
+                    this.showGameOver();
+                }
+            } else {
+                // Reset if police moved away
+                this.arrestTimer = 0;
+                this.arrestingPolice = null;
+                this.arrestTimerBar.setVisible(false);
+                this.arrestTimerBg.setVisible(false);
+            }
+        } else {
+            // Reset if player exits vehicle
+            this.arrestTimer = 0;
+            this.arrestingPolice = null;
+            this.arrestTimerBar.setVisible(false);
+            this.arrestTimerBg.setVisible(false);
+        }
+    }
+    
+    handleShooting(time) {
+        if ((this.shootKey.isDown || this.shootKeyAlt.isDown) && time > this.lastShotTime + this.shotCooldown) {
+            this.lastShotTime = time;
+            
+            let shootX, shootY, shootAngle;
+            
+            if (this.player.isInVehicle && this.player.currentVehicle) {
+                // Shooting from vehicle
+                const vehicle = this.player.currentVehicle;
+                
+                // Shoot in the direction the vehicle is facing
+                shootAngle = vehicle.rotation - Math.PI/2;
+                
+                // Position bullet at front of vehicle
+                const frontOffset = 30; // Distance from center to front of vehicle
+                shootX = vehicle.x + Math.cos(shootAngle) * frontOffset;
+                shootY = vehicle.y + Math.sin(shootAngle) * frontOffset;
+            } else {
+                // Shooting on foot
+                shootX = this.player.x;
+                shootY = this.player.y;
+                
+                // Determine shoot direction based on last movement
+                if (this.cursors.left.isDown || this.wasd.A.isDown) {
+                    shootAngle = Math.PI; // Left
+                } else if (this.cursors.right.isDown || this.wasd.D.isDown) {
+                    shootAngle = 0; // Right
+                } else if (this.cursors.up.isDown || this.wasd.W.isDown) {
+                    shootAngle = -Math.PI/2; // Up
+                } else if (this.cursors.down.isDown || this.wasd.S.isDown) {
+                    shootAngle = Math.PI/2; // Down
+                } else {
+                    // Default to right if not moving
+                    shootAngle = 0;
+                }
+            }
+            
+            this.fireBullet(shootX, shootY, shootAngle);
+        }
+    }
+    
+    fireBullet(x, y, angle) {
+        const bullet = this.bullets.get();
+        
+        if (bullet) {
+            bullet.fire(x, y, angle);
+            this.soundManager.playGunshot();
+        }
+    }
+    
+    handleBulletWallCollision(bullet, wall) {
+        bullet.hit();
+    }
+    
+    handleBulletPedestrianCollision(bullet, pedestrian) {
+        if (pedestrian.isAlive) {
+            pedestrian.getHit({ currentSpeed: 300, rotation: bullet.rotation });
+            bullet.hit();
+            
+            // Count pedestrian kills
+            this.pedestrianKillCount++;
+            console.log('Pedestrian kill count:', this.pedestrianKillCount);
+            
+            // Only increase wanted level after 3 kills
+            if (this.pedestrianKillCount >= 3 && this.wantedLevel === 0) {
+                this.increaseWantedLevel(1);
+            }
+        }
+    }
+    
+    handleBulletVehicleCollision(bullet, vehicle) {
+        bullet.hit();
+        
+        // Add some visual/audio feedback
+        this.cameras.main.shake(50, 0.005);
+        
+        // If it's a police vehicle, damage it
+        if (vehicle instanceof PoliceVehicle) {
+            vehicle.takeDamage();
+            this.increaseWantedLevel(2);
+        }
     }
 }
