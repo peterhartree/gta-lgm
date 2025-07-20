@@ -137,12 +137,16 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
                 this.scene.soundManager.playPedestrianDeath();
             }
             
+            // Create blood splatter effect
+            this.createBloodSplatter();
+            
             const angle = vehicle.rotation - Math.PI/2;
             const knockbackX = Math.cos(angle) * impactSpeed * 2;
             const knockbackY = Math.sin(angle) * impactSpeed * 2;
             
             this.setVelocity(knockbackX, knockbackY);
-            this.setAngularVelocity(Phaser.Math.Between(-500, 500));
+            // Remove spinning animation
+            // this.setAngularVelocity(Phaser.Math.Between(-500, 500));
             
             this.scene.time.delayedCall(3000, () => {
                 this.respawn();
@@ -155,6 +159,35 @@ class Pedestrian extends Phaser.Physics.Arcade.Sprite {
             
             // Update rotation when pushed
             this.setRotation(angle + Math.PI/2 + Math.PI);
+        }
+    }
+    
+    createBloodSplatter() {
+        // Create multiple blood particles for splatter effect
+        const bloodCount = Phaser.Math.Between(5, 8);
+        
+        for (let i = 0; i < bloodCount; i++) {
+            // Create a simple red circle for blood
+            const blood = this.scene.add.circle(
+                this.x + Phaser.Math.Between(-20, 20),
+                this.y + Phaser.Math.Between(-20, 20),
+                Phaser.Math.Between(3, 8),
+                0x8B0000
+            );
+            
+            // Set depth to appear on ground
+            blood.setDepth(0);
+            
+            // Fade out and destroy after delay
+            this.scene.tweens.add({
+                targets: blood,
+                alpha: 0,
+                duration: 5000,
+                delay: 2000,
+                onComplete: () => {
+                    blood.destroy();
+                }
+            });
         }
     }
     
